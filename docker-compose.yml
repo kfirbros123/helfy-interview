@@ -1,0 +1,84 @@
+version: '3.9'
+
+services:
+  pd:
+    image: pingcap/pd:v7.5.0
+    command:
+      - --name=pd
+      - --data-dir=/pd/data
+      - --client-urls=http://0.0.0.0:2379
+      - --peer-urls=http://0.0.0.0:2380
+      - --initial-cluster=pd=http://pd:2380
+      - --advertise-client-urls=http://pd:2379
+      - --advertise-peer-urls=http://pd:2380
+    ports:
+      - "2379:2379"
+      - "2380:2380"
+    volumes:
+      - pd-data:/pd/data
+    networks:
+      - helfy-net
+
+  tikv:
+    image: pingcap/tikv:v7.5.0
+    command:
+      - --pd=http://pd:2379
+      - --data-dir=/tikv/data
+    depends_on:
+      - pd
+    ports:
+      - "20160:20160"
+    volumes:
+      - tikv-data:/tikv/data
+    networks:
+      - helfy-net
+
+  tidb:
+    image: pingcap/tidb:v7.5.0
+    command:
+      - tidb-server
+      - --store=tikv
+      - --path=pd:2379
+      - --log.file.filename=/tmp/tidb.log
+    ports:
+      - "4000:4000"
+      - "10080:10080"
+    depends_on:
+      - pd
+      - tikv
+    networks:
+      - helfy-net
+
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    command: sh -c "sleep 25 && node server.js"
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    depends_on:
+      - tidb
+    networks:
+      - helfy-net
+
+  client:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+    networks:
+      - helfy-net
+
+volumes:
+  pd-data:
+  tikv-data:
+
+networks:
+  helfy-net:
+    driver: bridge

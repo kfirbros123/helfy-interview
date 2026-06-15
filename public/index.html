@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Helfy Login</title>
+</head>
+<body>
+  <h1>Helfy Login</h1>
+  <form id="login-form">
+    <div>
+      <label for="loginValue">Username or Email</label><br />
+      <input type="text" id="loginValue" name="loginValue" autocomplete="username" />
+    </div>
+    <div>
+      <label for="password">Password</label><br />
+      <input type="password" id="password" name="password" autocomplete="current-password" />
+    </div>
+    <button type="submit">Login</button>
+  </form>
+
+  <p id="status"></p>
+
+  <div id="profile-actions" style="display:none; margin-top: 1rem;">
+    <button id="profile-button">Get Profile</button>
+    <button id="logout-button">Logout</button>
+  </div>
+
+  <pre id="output" style="white-space: pre-wrap; background:#f3f3f3; padding:1rem; border:1px solid #ddd;"></pre>
+
+  <script src="app.js"></script>
+</body>
+</html>
