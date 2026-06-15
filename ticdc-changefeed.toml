@@ -1,0 +1,5 @@
+[filter]
+rules = ['helfy_app.*']
+
+[sink]
+protocol = "canal-json"

@@ -23,10 +23,15 @@ services:
     command:
       - --pd=http://pd:2379
       - --data-dir=/tikv/data
+      - --addr=0.0.0.0:20160
+      - --advertise-addr=tikv:20160
+      - --status-addr=0.0.0.0:20180
+      - --advertise-status-addr=tikv:20180
     depends_on:
       - pd
     ports:
       - "20160:20160"
+      - "20180:20180"
     volumes:
       - tikv-data:/tikv/data
     networks:
@@ -48,14 +53,15 @@ services:
     networks:
       - helfy-net
 
-  mysql-init:
-    image: mysql:8.0
+  db-init:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
     depends_on:
       - tidb
-    environment:
-      - MYSQL_ALLOW_EMPTY_PASSWORD=yes
-    command: >
-      sh -c "until mysql -h tidb -P 4000 -u root -e 'CREATE DATABASE IF NOT EXISTS helfy_app;'; do echo 'Waiting for TiDB to create database...'; sleep 3; done; echo 'Database helfy_app is ready.'"
+    env_file:
+      - .env
+    command: node db-init.js
     restart: 'no'
     networks:
       - helfy-net
@@ -72,6 +78,10 @@ services:
       - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
       - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
       - KAFKA_AUTO_CREATE_TOPICS_ENABLE=true
+      - KAFKA_DEFAULT_REPLICATION_FACTOR=2
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=2
+      - KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=2
+      - KAFKA_NUM_PARTITIONS=1
     ports:
       - "9092:9092"
     volumes:
@@ -91,10 +101,43 @@ services:
       - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
       - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
       - KAFKA_AUTO_CREATE_TOPICS_ENABLE=true
+      - KAFKA_DEFAULT_REPLICATION_FACTOR=2
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=2
+      - KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=2
+      - KAFKA_NUM_PARTITIONS=1
     ports:
       - "9093:9092"
     volumes:
       - kafka-2-data:/var/lib/kafka/data
+    networks:
+      - helfy-net
+
+  ticdc:
+    image: pingcap/ticdc:v7.5.0
+    depends_on:
+      pd:
+        condition: service_started
+      tikv:
+        condition: service_started
+      tidb:
+        condition: service_started
+      kafka-1:
+        condition: service_started
+      kafka-2:
+        condition: service_started
+      db-init:
+        condition: service_completed_successfully
+    restart: on-failure
+    command: >
+      sh -c "/cdc server --pd=http://pd:2379 --addr=0.0.0.0:8300 --advertise-addr=ticdc:8300 --log-level=info --log-file=/tmp/ticdc.log --data-dir=/tmp/cdc-data &
+             until /cdc cli changefeed list --pd=http://pd:2379 >/dev/null 2>&1; do echo 'Waiting for TiCDC server...'; sleep 3; done;
+             if /cdc cli changefeed query --pd=http://pd:2379 --changefeed-id=helfy-cdc >/dev/null 2>&1; then echo 'TiCDC changefeed helfy-cdc already exists.';
+             else until /cdc cli changefeed create --pd=http://pd:2379 --config=/etc/ticdc/changefeed.toml --sink-uri='kafka://kafka-1:9092,kafka-2:9092/db-changes?protocol=canal-json' --changefeed-id=helfy-cdc; do echo 'Waiting to create TiCDC Kafka changefeed...'; sleep 5; done; fi;
+             wait"
+    ports:
+      - "8300:8300"
+    volumes:
+      - ./ticdc-changefeed.toml:/etc/ticdc/changefeed.toml:ro
     networks:
       - helfy-net
 
@@ -108,10 +151,30 @@ services:
     env_file:
       - .env
     depends_on:
-      - tidb
-      - mysql-init
+      tidb:
+        condition: service_started
+      kafka-1:
+        condition: service_started
+      kafka-2:
+        condition: service_started
+      ticdc:
+        condition: service_started
+      db-init:
+        condition: service_completed_successfully
+    networks:
+      - helfy-net
+
+  consumer:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    command: sh -c "sleep 30 && node consumer.js"
+    env_file:
+      - .env
+    depends_on:
       - kafka-1
       - kafka-2
+      - ticdc
     networks:
       - helfy-net
 
