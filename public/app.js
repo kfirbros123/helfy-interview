@@ -37,9 +37,16 @@ async function apiRequest(url, options = {}) {
   headers['Content-Type'] = 'application/json';
 
   const response = await fetch(url, { ...options, headers });
-  const data = await response.json();
+  const text = await response.text();
+  let data;
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch (err) {
+    throw new Error(`Invalid JSON response: ${text}`);
+  }
+
   if (!response.ok) {
-    throw new Error(data.error || 'Request failed');
+    throw new Error(data.error || `Request failed with status ${response.status}`);
   }
   return data;
 }
