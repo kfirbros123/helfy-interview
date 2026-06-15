@@ -10,15 +10,11 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const dbConfig = {
+const pool = mysql.createPool({
   host: process.env.DB_HOST || '127.0.0.1',
   port: process.env.DB_PORT ? Number(process.env.DB_PORT) : 4000,
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || '',
-};
-
-const pool = mysql.createPool({
-  ...dbConfig,
   database: process.env.DB_NAME || 'helfy_app',
   waitForConnections: true,
   connectionLimit: 10,
@@ -28,18 +24,7 @@ const pool = mysql.createPool({
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-async function ensureDatabaseExists() {
-  const dbName = process.env.DB_NAME || 'helfy_app';
-  const connection = await mysql.createConnection(dbConfig);
-  try {
-    await connection.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\``);
-  } finally {
-    await connection.end();
-  }
-}
-
 async function initDatabase() {
-  await ensureDatabaseExists();
   const createUsersSql = `
     CREATE TABLE IF NOT EXISTS users (
       id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -67,20 +52,13 @@ async function initDatabase() {
 
     const [rows] = await connection.query('SELECT COUNT(*) AS count FROM users');
     if (rows[0].count === 0) {
-      const demoPassword = 'Password123';
-      const demoHash = await bcrypt.hash(demoPassword, 10);
-      const kfirPassword = 'qwe123';
-      const kfirHash = await bcrypt.hash(kfirPassword, 10);
-      
+      const defaultPassword = 'Password123';
+      const passwordHash = await bcrypt.hash(defaultPassword, 10);
       await connection.query(
         'INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)',
-        ['demo', 'demo@example.com', demoHash]
+        ['demo', 'demo@example.com', passwordHash]
       );
-      await connection.query(
-        'INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)',
-        ['kfir', 'kfir@example.com', kfirHash]
-      );
-      console.log('Created default users: demo / Password123, kfir / qwe123');
+      console.log('Created default demo user: demo / Password123');
     }
   } finally {
     connection.release();
