@@ -60,6 +60,44 @@ services:
     networks:
       - helfy-net
 
+  kafka-1:
+    image: apache/kafka:latest
+    environment:
+      - KAFKA_PROCESS_ROLES=broker,controller
+      - KAFKA_NODE_ID=1
+      - KAFKA_CONTROLLER_QUORUM_VOTERS=1@kafka-1:9093,2@kafka-2:9093
+      - KAFKA_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka-1:9092
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_AUTO_CREATE_TOPICS_ENABLE=true
+    ports:
+      - "9092:9092"
+    volumes:
+      - kafka-1-data:/var/lib/kafka/data
+    networks:
+      - helfy-net
+
+  kafka-2:
+    image: apache/kafka:latest
+    environment:
+      - KAFKA_PROCESS_ROLES=broker,controller
+      - KAFKA_NODE_ID=2
+      - KAFKA_CONTROLLER_QUORUM_VOTERS=1@kafka-1:9093,2@kafka-2:9093
+      - KAFKA_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka-2:9092
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_AUTO_CREATE_TOPICS_ENABLE=true
+    ports:
+      - "9093:9092"
+    volumes:
+      - kafka-2-data:/var/lib/kafka/data
+    networks:
+      - helfy-net
+
   api:
     build:
       context: .
@@ -72,6 +110,8 @@ services:
     depends_on:
       - tidb
       - mysql-init
+      - kafka-1
+      - kafka-2
     networks:
       - helfy-net
 
@@ -89,6 +129,8 @@ services:
 volumes:
   pd-data:
   tikv-data:
+  kafka-1-data:
+  kafka-2-data:
 
 networks:
   helfy-net:

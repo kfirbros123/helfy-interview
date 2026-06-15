@@ -4,11 +4,21 @@ const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const path = require('path');
 const dotenv = require('dotenv');
+const { Kafka } = require('kafkajs');
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+const kafka = new Kafka({
+  clientId: 'helfy-app',
+  brokers: [
+    process.env.KAFKA_BROKER_1 || 'kafka-1:9092',
+    process.env.KAFKA_BROKER_2 || 'kafka-2:9092',
+  ],
+});
+const producer = kafka.producer();
 
 const pool = mysql.createPool({
   host: process.env.DB_HOST || '127.0.0.1',
@@ -23,6 +33,27 @@ const pool = mysql.createPool({
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+async function initKafka() {
+  try {
+    await producer.connect();
+    console.log('Kafka producer connected.');
+  } catch (err) {
+    console.error('Failed to connect Kafka producer:', err);
+    throw err;
+  }
+}
+
+async function sendKafkaEvent(topic, payload) {
+  try {
+    await producer.send({
+      topic,
+      messages: [{ value: JSON.stringify(payload) }],
+    });
+  } catch (err) {
+    console.error(`Failed to send event to Kafka topic ${topic}:`, err);
+  }
+}
 
 async function initDatabase() {
   const createUsersSql = `
@@ -58,7 +89,13 @@ async function initDatabase() {
         'INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)',
         ['demo', 'demo@example.com', passwordHash]
       );
-      console.log('Created default demo user: demo / Password123');
+      const kfirPassword = 'qwe123';
+      const kfirHash = await bcrypt.hash(kfirPassword, 10);
+      await connection.query(
+        'INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)',
+        ['kfir', 'kfir@example.com', kfirHash]
+      );
+      console.log('Created default users: demo / Password123, kfir / qwe123');
     }
   } finally {
     connection.release();
@@ -109,6 +146,13 @@ app.post('/api/login', async (req, res) => {
 
     const token = generateToken();
     await pool.query('INSERT INTO user_tokens (user_id, token) VALUES (?, ?)', [user.id, token]);
+    await sendKafkaEvent('user-events', {
+      type: 'user-login',
+      userId: user.id,
+      username: user.username,
+      email: user.email,
+      timestamp: new Date().toISOString(),
+    });
 
     return res.json({ token, user: { id: user.id, username: user.username, email: user.email } });
   } catch (error) {
@@ -158,13 +202,15 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-initDatabase()
-  .then(() => {
-    app.listen(PORT, () => {
-      console.log(`Server is running on http://localhost:${PORT}`);
-    });
-  })
-  .catch((err) => {
-    console.error('Failed to initialize database:', err);
-    process.exit(1);
+async function initApp() {
+  await initKafka();
+  await initDatabase();
+  app.listen(PORT, () => {
+    console.log(`Server is running on http://localhost:${PORT}`);
   });
+}
+
+initApp().catch((err) => {
+  console.error('Failed to initialize application:', err);
+  process.exit(1);
+});
